@@ -1,0 +1,166 @@
+c
+c Generate SubProcedures to replace KeyBuff
+c
+. TASK Make Key Buff
+c
+. global esw    = $execute subprocedure write$
+c
+program
+. window clear
+. x=globals("CASEIDNM",pack(varname(0,1)))
+. ifthen(vtype(0,varname(0,1))=1)x=globals("CASE__TP","STRING")
+. else                           x=globals("CASE__TP","NUMBER")
+. endif
+end program
+c
+program
+string *  512 BUFF$                       | for a line of text for generated pql
+string *   32 BUFF$N                      | buffer name
+string *   32 CASE_$V                     | ASE_$V = trim(gettxt(SUBJECTS))
+integer *   4 line# rec_#c key#
+c string *   32 array SP_buff (500)
+
+. LINE# = 1
+. compute REC_#C=0       |How many records exists for that case
+. BUFF$N = 'KEYBUFF'
+. delete buffer BUFF$N
+. create buffer BUFF$N
+
+c
+c Create the Header SubProcedure
+c
+. line#=line#+1;BUFF$ = 'c';<esw>
+. line#=line#+1;BUFF$ = 'subprocedure MAKE_KEYBUFF'+'     | parent SP to execute proper rec subprocedure';<esw>
+. line#=line#+1;BUFF$ = 'string * 32 TEMP_$ SHOW_$';<esw> | this should be at top of main routine
+. line#=line#+1;BUFF$ = 'c';<esw>
+. line#=line#+1;BUFF$ = '. ifthen (exists(CASE_$V) = 0 or len(trim(CASE_$V)) = 0)';<esw>
+. line#=line#+1;BUFF$ = '.   CASE_$V = trim(gettxt(SUBJECTS))';<esw>
+. line#=line#+1;BUFF$ = '. endif';<esw>
+. line#=line#+1;BUFF$ = 'c';<esw>
+
+. ifthen(vtype(0,varname(0,1)) gt 1)line#=line#+1;BUFF$ = '. CASE__ID=numbr(case_$V)';<esw>
+. else                              line#=line#+1;BUFF$ = '. CASE__ID=case_$v';<esw>
+. endif
+
+. line#=line#+1;BUFF$ = ". set SHOW_$ TEMP_$ (' ')";<esw>
+. line#=line#+1;BUFF$ = '. execute subprocedure ["get_rec_"+format(REC_#)]';<esw>
+. line#=line#+1;BUFF$ = 'end subprocedure | MAKE_KEYBUFF';<esw>
+
+c
+c Now Create one subprocedure per rectype
+c
+. for rt#=1,nrecs(0)
+.   rt$=pack(recname(rt#))
+.   ifnot(exists(rt$))next for
+.   execute subprocedure MAKE_KEYBUFF_SP
+. end for
+
+c
+subprocedure MAKE_KEYBUFF_SP
+
+. key#=dbtype(0)
+
+| when cycling thru the records you must remember the last key, check it to current value and see if different.  Use TEMP_$
+. line#=line#+1;BUFF$ = 'c';<esw>
+. line#=line#+1;BUFF$ = 'subprocedure get_rec_'+format(rt#)+" | rectype "+format(rt#)+" "+recname(rt#)
+. <esw>
+c insert line into buffer BUFF$N numbered LINE# from BUFF$
+
+. LINE# = LINE# + 1
+. BUFF$ = '. old case is CASE__ID'
+. <esw>
+c insert line into buffer BUFF$N numbered LINE# from BUFF$
+. LINE# = LINE# + 1
+. BUFF$ = '.   set item REC_CNTL , [format(count(REC_#))]'
+. <esw>
+. LINE# = LINE# + 1
+. BUFF$ = '.   set item FORMCNT  , [format(count(REC_#))]'
+. <esw>
+. LINE# = LINE# + 1
+. BUFF$ = '.   ifthen ((0 eq nkeys(' + format(rt#) +')) and (count(' + format(rt#) + ') eq 1)) hide item ADDNEWF'
+c BUFF$ = '.   ifthen ((0 eq nkeys(' + format(REC_#) +')) and (count(' + format(REC_#) + ') eq 1)) hide item ' +format(ADDNEWF)
+. <esw>
+. LINE# = LINE# + 1
+. BUFF$ = '.   else  show item ADDNEWF'
+. <esw>
+. LINE# = LINE# + 1
+. BUFF$ = '.   endif'
+. <esw>
+. LINE# = LINE# + 1
+. BUFF$ = '.   set item ADDNEWF , "New '+ rt$ + ' Form"'
+. <esw>
+c insert line into buffer BUFF$N numbered LINE# from BUFF$
+. LINE# = LINE# + 1
+.   BUFF$ = '.   set item BIG_SUBJ , CASE__ID'
+
+ccc .   ifthen (VTYPE(0,CASE_$N) = 1 and sbst(CASE_$V,1,1) <> "'")
+ccc .     BUFF$ = BUFF$ + '"' + CASE_$V + '"'
+ccc .   else
+ccc .     BUFF$ = BUFF$ + CASE_$V
+ccc .   endif
+. <esw>
+
+c   insert line into buffer BUFF$N numbered LINE# from BUFF$
+.   LINE# = LINE# + 1
+ifthen (nkeys(rt#) gt 0)  |This is indented to stand out.  No Keys needs something special because D_ITEM_# will not work.
+. BUFF$ = '.   process rec ' + format(rt#) + ' ' + " | NEED VIA_$" | VIA_$ | I assume VIA_$ is set somewhere else; ths
+. <esw>
+c insert line into buffer BUFF$N numbered LINE# from BUFF$
+. LINE# = LINE# + 1
+. ifthen (vtype(rt#, keyname(rt#, KEY#+1)) = 3)
+.   BUFF$ =  '.   SHOW_$ = replace(varget(keyname(' + format(rt#) + ', ' + format(KEY#+1) + '))," ","/",2,0,0)'
+c   BUFF$ =  '.   SHOW_$ = replace(varget(keyname(' + format(REC_#) + ', ' + format(OURKEY#+1) + '))," ","/",2,0,0)'
+. elseif (vtype(rt#, keyname(rt#, KEY#+1)) = 4)
+.   BUFF$ =  '.   SHOW_$ = replace(varget(keyname(' + format(rt#) + ', ' + format(KEY#+1) + '))," ",":",3,0,0)'
+c   BUFF$ =  '.   SHOW_$ = replace(varget(keyname(' + format(REC_#) + ', ' + format(OURKEY#+1) + '))," ",":",3,0,0)'
+. else
+.   BUFF$ =  '.   SHOW_$ =  trimlr(varget(keyname(' + format(rt#) + ', ' + format(KEY#+1) + ')))'
+c   BUFF$ =  '.   SHOW_$ =  trimlr(varget(keyname(' + format(REC_#) + ', ' + format(OURKEY#+1) + ')))'
+. endif
+. <esw>
+
+. LINE# = LINE# + 1
+. BUFF$ =  '.     ifthen (trimlr(TEMP_$) ne trimlr(SHOW_$))'
+. <esw>
+
+. LINE# = LINE# + 1
+c BUFF$ =  '.       append item D_ITEM_#', [pack(SHOW_$)]'  | ask David why hardcoding rather than vars
+. BUFF$ =  '.       append item D_ITEM_#, pack(SHOW_$)'
+. BUFF$ =  BUFF$+ '+"  "+trim(fst(vallab('+pack(keyname(rt#,KEY#+1)) + '),""))'
+. <esw>
+. LINE# = LINE# + 1
+. BUFF$ = '.      endif'
+. <esw>
+
+. LINE# = LINE# + 1
+. BUFF$ = '.     TEMP_$ = SHOW_$'
+. <esw>
+
+. LINE# = LINE# + 1
+. BUFF$ = '.   end rec'
+. <esw>
+
+. LINE# = LINE# + 1
+endif
+. BUFF$ = '. end case'
+. <esw>
+
+. LINE# = LINE# + 1
+. BUFF$ = 'if(gettxt(D_ITEM_#) = "" or exists(gettxt(D_ITEM_#)) = 0 and NKEYS(REC_#) > 0) append item D_ITEM_#, "No data"'
+. <esw>
+
+. LINE# = LINE# + 1
+. BUFF$ = 'end subprocedure'
+. <esw>
+
+ccc execute dbms ['INCLUDE BUFFER ' + BUFF$N]
+c
+ccc if (gettxt(D_ITEM_#) = '' or exists(gettxt(D_ITEM_#)) = 0 and NKEYS(REC_#) > 0) append item D_ITEM_#, "No data"
+end subprocedure
+c
+subprocedure write
+. write buff$
+
+. insert line into buffer BUFF$N numbered LINE# from BUFF$
+
+end subprocedure
